@@ -1,0 +1,5 @@
+package rssfilter
+
+func New() {
+
+}
