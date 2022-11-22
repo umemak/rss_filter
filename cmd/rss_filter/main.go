@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/xml"
 	"flag"
 	"fmt"
 	"os"
+
+	rssfilter "github.com/umemak/rss_filter"
 )
 
 func main() {
@@ -15,6 +18,16 @@ func main() {
 	}
 }
 
-func run(fname string) error {
+func run(url string) error {
+	buf, err := rssfilter.Fetch(url)
+	if err != nil {
+		return fmt.Errorf("rssfilter.Fetch: %w", err)
+	}
+	rss, err := rssfilter.Parse(buf)
+	if err != nil {
+		return fmt.Errorf("rssfilter.Parse: %w", err)
+	}
+	res, err := xml.MarshalIndent(rss, "", "  ")
+	fmt.Println(string(res))
 	return nil
 }

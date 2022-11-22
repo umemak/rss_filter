@@ -1,0 +1,18 @@
+package rssfilter
+
+var apiHost = "https://localhost/Handler"
+
+var configs = []config{
+	{
+		name: "Zenn",
+		rsss: []rss{
+			{title: "Zennの「Rust」のフィード", url: "https://zenn.dev/topics/rust/feed"},
+			{title: "Zennの「Amplify」のフィード", url: "https://zenn.dev/topics/amplify/feed"},
+			{title: "Zennの「GitHub Actions」のフィード", url: "https://zenn.dev/topics/githubactions/feed"},
+			{title: "Zennの「Firebase」のフィード", url: "https://zenn.dev/topics/firebase/feed"},
+			{title: "Zennの「Flutter」のフィード", url: "https://zenn.dev/topics/flutter/feed"},
+			{title: "Zennの「Dart」のフィード", url: "https://zenn.dev/topics/dart/feed"},
+			{title: "Zennのトレンド", url: "https://zenn.dev/feed"},
+		},
+	},
+}
