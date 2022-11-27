@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/xml"
 	"flag"
 	"fmt"
 	"os"
@@ -18,16 +17,11 @@ func main() {
 	}
 }
 
-func run(url string) error {
-	buf, err := rssfilter.Fetch(url)
+func run(name string) error {
+	res, err := rssfilter.GetByName(name)
 	if err != nil {
-		return fmt.Errorf("rssfilter.Fetch: %w", err)
+		return fmt.Errorf("rssfilter.GetByName: %w", err)
 	}
-	rss, err := rssfilter.Parse(buf)
-	if err != nil {
-		return fmt.Errorf("rssfilter.Parse: %w", err)
-	}
-	res, err := xml.MarshalIndent(rss, "", "  ")
-	fmt.Println(string(res))
+	fmt.Println(res)
 	return nil
 }
