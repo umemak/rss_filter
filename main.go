@@ -4,18 +4,25 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/gorilla/mux"
 )
 
 func main() {
-	// Get port from environment variable, default to 8080
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	// Use the Handler function
-	http.HandleFunc("/", Handler)
+	r := mux.NewRouter()
+
+	r.HandleFunc("/", rssHandler)
+	r.HandleFunc("/config", configUIHandler)
+	r.HandleFunc("/api/configs", listConfigsHandler).Methods("GET")
+	r.HandleFunc("/api/configs/{name}", getConfigHandler).Methods("GET")
+	r.HandleFunc("/api/configs", saveConfigHandler).Methods("POST")
+	r.HandleFunc("/api/configs/{name}", deleteConfigHandler).Methods("DELETE")
 
 	log.Printf("Server starting on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Fatal(http.ListenAndServe(":"+port, r))
 }

@@ -4,17 +4,18 @@ FROM golang:1.25.0 as builder
 # Set the Current Working Directory inside the container
 WORKDIR /app
 
-# Copy go mod and sum files
+# Copy go mod
 COPY go.mod go.sum ./
-
-# Download all dependencies. Dependencies will be cached if the go.mod and go.sum files are not changed
-RUN go mod download
 
 # Copy the source from the current directory to the Working Directory inside the container
 COPY . .
 
+# Tidy and vendor dependencies
+RUN go mod tidy
+RUN go mod vendor
+
 # Build the Go app
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o main .
 
 # Start a new stage from scratch
 FROM alpine:latest  

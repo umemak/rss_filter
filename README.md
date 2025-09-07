@@ -8,15 +8,15 @@ RSS フィルターサービス - 複数のRSSフィードを集約・フィル�
 
 ## フロー
 
-1. 設定ファイルからRSSソースと フィルター条件を読み込み
+1. Firestoreから設定を読み込み
 2. 各RSSフィードを取得・解析
 3. フィルター条件に基づいてコンテンツをフィルタリング
 4. 統合されたRSSフィードを生成・配信
-5. (New) 配信した記事のURLをFirestoreに保存し、次回以降は重複して配信しない
+5. 配信した記事のURLをFirestoreに保存し、次回以降は重複して配信しない
 
 ## GCPセットアップ
 
-本アプリケーションは、配信済みの記事URLを永続化するためにFirestoreを使用します。
+本アプリケーションは、設定と配信済みの記事URLを永続化するためにFirestoreを使用します。
 
 ### 1. Firestore APIの有効化
 
@@ -85,20 +85,63 @@ go run .
 
 ### エンドポイント
 
-- **設定名指定**: `?name=<config_name>` - 設定された名前のRSSフィードを取得
-- **URL指定**: `?url=<rss_url>` - 指定したURLのRSSフィードをフィルタリングして取得
+- **RSSフィード**: `/?name=<config_name>` - 設定された名前のRSSフィードを取得
+- **設定UI**: `/config` - 設定を管理するためのWeb UI
 
 ## 設定
 
-- `config.go` - RSSソースとフィルター条件を定義
-- `config.go.sample` - 設定ファイルのサンプル
-- 各種フィルター配列(`filter1`〜`filter6`)でフィルタリング戦略を定義
+設定はFirestoreの `rss_configurations` コレクションに保存されます。設定は `/config` エンドポイントのUIから管理できます。
+
+- **コレクション**: `rss_configurations`
+- **ドキュメントID**: 設定名 (例: `my_feed`)
+
+### ドキュメントの構造
+
+```json
+{
+  "name": "my_feed",
+  "rsss": [
+    {
+      "title": "Tech News",
+      "url": "https://example.com/tech_news.rss"
+    },
+    {
+      "title": "Go Blog",
+      "url": "https://dev.to/feed/tag/go"
+    }
+  ],
+  "ignores": [
+    {
+      "condition": 1, // TITLE_INCLUDES
+      "text": "[PR]"
+    },
+    {
+      "condition": 5, // URL_INCLUDES
+      "text": "/sponsored/"
+    }
+  ]
+}
+```
+
+### `condition` の値
+
+| 値 | 説明 |
+| :--- | :--- |
+| 1 | タイトルに含まれる (TITLE_INCLUDES) |
+| 2 | タイトルまたは概要に含まれる (TITLE_OR_DESC_INCLUDES) |
+| 3 | タイトルの先頭 (TITLE_BEGINS) |
+| 4 | タイトルの終わり (TITLE_ENDS) |
+| 5 | URLに含まれる (URL_INCLUDES) |
+| 6 | 著者に含まれる (AUTHOR_INCLUDES) |
 
 ## 技術仕様
 
-- **言語**: Go 1.25.0
+- **言語**: Go
 - **プラットフォーム**: Google Cloud Run
+- **データベース**: Google Cloud Firestore
 - **コンテナ化**: Docker
 - **依存関係**:
   - `github.com/gorilla/feeds` - RSS生成
   - `github.com/mmcdole/gofeed` - RSS解析
+  - `cloud.google.com/go/firestore` - データベースアクセス
+  - `github.com/gorilla/mux` - HTTPルーティング

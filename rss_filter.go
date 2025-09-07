@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"encoding/xml"
-	"errors"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -14,26 +12,14 @@ import (
 	"github.com/mmcdole/gofeed"
 )
 
-func Handler(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
-	fmt.Printf("name: %s\n", name)
-	if name != "" {
-		res, err := GetByName(name)
-		if err != nil {
-			fmt.Fprintf(w, "error: %v", err)
-			return
-		}
-		fmt.Fprint(w, string(res))
-	} else {
-		url := r.URL.Query().Get("url")
-		res, err := GetByURL(url)
-		if err != nil {
-			fmt.Fprintf(w, "error: %v", err)
-			return
-		}
-		fmt.Fprint(w, string(res))
-	}
-}
+const (
+	TITLE_INCLUDES         = 1 // タイトルに含まれる
+	TITLE_OR_DESC_INCLUDES = 2 // タイトルまたは概要に含まれる
+	TITLE_BEGINS           = 3 // タイトルの先頭
+	TITLE_ENDS             = 4 // タイトルの終わり
+	URL_INCLUDES           = 5 // URLに含まれる
+	AUTHOR_INCLUDES        = 6 // 著者に含まれる
+)
 
 func GetByURL(url string) (string, error) {
 	rss, err := getRSS(url, "")
@@ -55,94 +41,86 @@ func GetByName(name string) (string, error) {
 	}
 	defer dbClient.Close()
 
-	for _, c := range configs {
-		if c.name != name {
-			continue
-		}
-		var mergedRSS feeds.Feed
-		for _, r := range c.rsss {
-			rss, err := getRSS(r.url, r.title)
-			if err != nil {
-				return "", fmt.Errorf("getRSS: %w", err)
-			}
-			is := []*feeds.Item{}
-			for _, v := range rss.Items {
-				if isIgnore(v) {
-					continue
-				}
-			exists, err := dbClient.IsURLExists(ctx, v.Link.Href)
-				if err != nil {
-					return "", fmt.Errorf("IsURLExists: %w", err)
-				}
-				if exists {
-					fmt.Printf("URL already exists: %s\n", v.Link.Href)
-					continue
-				}
-				if err := dbClient.AddURL(ctx, v.Link.Href); err != nil {
-					return "", fmt.Errorf("AddURL: %w", err)
-				}
-				is = append(is, v)
-			}
-			mergedRSS.Items = append(mergedRSS.Items, is...)
-		}
-		mergedRSS.Title = name
-		mergedRSS.Description = name
-		mergedRSS.Link = &feeds.Link{Href: apiHost + "?name=" + name}
-		items := mergedRSS.Items
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].Created.Local().String() > items[j].Created.Local().String()
-		})
-		mergedRSS.Items = items
-		res, err := mergedRSS.ToRss()
-		if err != nil {
-			return "", fmt.Errorf("ToRss: %w", err)
-		}
-		return string(res), nil
+	cfg, err := dbClient.GetConfig(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("GetConfig: %w", err)
 	}
-	return "", errors.New("name not found")
+
+	var mergedRSS feeds.Feed
+	for _, r := range cfg.Rsss {
+		rss, err := getRSS(r.URL, r.Title)
+		if err != nil {
+			return "", fmt.Errorf("getRSS: %w", err)
+		}
+		is := []*feeds.Item{}
+		for _, v := range rss.Items {
+			if isIgnore(v, cfg.Ignores) {
+				continue
+			}
+			exists, err := dbClient.IsURLExists(ctx, v.Link.Href)
+			if err != nil {
+				return "", fmt.Errorf("IsURLExists: %w", err)
+			}
+			if exists {
+				fmt.Printf("URL already exists: %s\n", v.Link.Href)
+				continue
+			}
+			if err := dbClient.AddURL(ctx, v.Link.Href); err != nil {
+				return "", fmt.Errorf("AddURL: %w", err)
+			}
+			is = append(is, v)
+		}
+		mergedRSS.Items = append(mergedRSS.Items, is...)
+	}
+	mergedRSS.Title = name
+	mergedRSS.Description = name
+	mergedRSS.Link = &feeds.Link{Href: ""}
+	items := mergedRSS.Items
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Created.After(items[j].Created)
+	})
+	mergedRSS.Items = items
+	res, err := mergedRSS.ToRss()
+	if err != nil {
+		return "", fmt.Errorf("ToRss: %w", err)
+	}
+	return string(res), nil
 }
 
-func isIgnore(i *feeds.Item) bool {
-	for _, v := range filter1 {
-		if strings.Contains(i.Title, v) {
-			fmt.Printf("Ignored: %q in Title [%s](%s)\n", v, i.Title, i.Link.Href)
-			return true
+func isIgnore(i *feeds.Item, ignores []Ignore) bool {
+	for _, ignore := range ignores {
+		switch ignore.Condition {
+		case TITLE_INCLUDES:
+			if strings.Contains(i.Title, ignore.Text) {
+				fmt.Printf("Ignored: %q in Title [%s](%s)\n", ignore.Text, i.Title, i.Link.Href)
+				return true
+			}
+		case TITLE_OR_DESC_INCLUDES:
+			if strings.Contains(i.Title, ignore.Text) || strings.Contains(i.Description, ignore.Text) {
+				fmt.Printf("Ignored: %q in Title or Description [%s](%s)\n", ignore.Text, i.Title, i.Link.Href)
+				return true
+			}
+		case TITLE_BEGINS:
+			if strings.HasPrefix(i.Title, ignore.Text) {
+				fmt.Printf("Ignored: %q in Title Prefix [%s](%s)\n", ignore.Text, i.Title, i.Link.Href)
+				return true
+			}
+		case TITLE_ENDS:
+			if strings.HasSuffix(i.Title, ignore.Text) {
+				fmt.Printf("Ignored: %q in Title Suffix [%s](%s)\n", ignore.Text, i.Title, i.Link.Href)
+				return true
+			}
+		case URL_INCLUDES:
+			if strings.Contains(i.Link.Href, ignore.Text) {
+				fmt.Printf("Ignored: %q in Link [%s](%s)\n", ignore.Text, i.Title, i.Link.Href)
+				return true
+			}
+		case AUTHOR_INCLUDES:
+			if i.Author != nil && i.Author.Name == ignore.Text {
+				fmt.Printf("Ignored: %q is Author [%s](%s)\n", ignore.Text, i.Title, i.Link.Href)
+				return true
+			}
 		}
-		if strings.Contains(i.Description, v) {
-			fmt.Printf("Ignored: %q in Description [%s](%s)\n", v, i.Title, i.Link.Href)
-			return true
-		}
-		if strings.Contains(i.Content, v) {
-			fmt.Printf("Ignored: %q in Content [%s](%s)\n", v, i.Title, i.Link.Href)
-			return true
-		}
-	}
-	for _, v := range filter2 {
-		if strings.Contains(i.Title, v) {
-			fmt.Printf("Ignored: %q in Title [%s](%s)\n", v, i.Title, i.Link.Href)
-			return true
-		}
-	}
-	for _, v := range filter3 {
-		if strings.HasSuffix(i.Title, v) {
-			fmt.Printf("Ignored: %q in Title [%s](%s)\n", v, i.Title, i.Link.Href)
-			return true
-		}
-	}
-	for _, v := range filter4 {
-		if strings.Contains(i.Link.Href, v) {
-			fmt.Printf("Ignored: %q in Link [%s](%s)\n", v, i.Title, i.Link.Href)
-			return true
-		}
-	}
-	for _, v := range filter5 {
-		if i.Author != nil && i.Author.Name == v {
-			fmt.Printf("Ignored: %q is Author [%s](%s)\n", v, i.Title, i.Link.Href)
-			return true
-		}
-	}
-	for _, v := range filter6 {
-		i.Title = strings.ReplaceAll(i.Title, v, "")
 	}
 	return false
 }
@@ -181,31 +159,4 @@ func getRSS(url string, title string) (*feeds.Feed, error) {
 		res.Items = append(res.Items, item)
 	}
 	return res, nil
-}
-
-type config struct {
-	name    string
-	rsss    []rss
-	ignores []ignore
-}
-
-type rss struct {
-	title string
-	url   string
-}
-
-type condition int
-
-const (
-	TITLE_INCLUDES         condition = 1 // タイトルに含まれる
-	TITLE_OR_DESC_INCLUDES condition = 2 // タイトルまたは概要に含まれる
-	TITLE_BEGINS           condition = 3 // タイトルの先頭
-	TITLE_ENDS             condition = 4 // タイトルの終わり
-	URL_INCLUDES           condition = 5 // URLに含まれる
-	AUTHOR_INCLUDES        condition = 6 // 著者に含まれる
-)
-
-type ignore struct {
-	condition condition
-	text      string
 }

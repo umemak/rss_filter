@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSS Filter Configuration</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>RSS Filter Configuration</h1>
+
+        <div class="mb-3">
+            <label for="config-select" class="form-label">Select Configuration</label>
+            <div class="input-group">
+                <select id="config-select" class="form-select"></select>
+                <button id="load-config" class="btn btn-primary">Load</button>
+                <button id="new-config" class="btn btn-success">New</button>
+                <button id="delete-config" class="btn btn-danger">Delete</button>
+            </div>
+        </div>
+
+        <form id="config-form">
+            <div class="mb-3">
+                <label for="config-name" class="form-label">Configuration Name</label>
+                <input type="text" id="config-name" class="form-control" required>
+            </div>
+
+            <hr>
+
+            <h3>RSS Feeds</h3>
+            <div id="rss-feeds"></div>
+            <button type="button" id="add-rss" class="btn btn-secondary mt-2">Add RSS Feed</button>
+
+            <hr>
+
+            <h3>Ignore Rules</h3>
+            <div id="ignore-rules"></div>
+            <button type="button" id="add-ignore" class="btn btn-secondary mt-2">Add Ignore Rule</button>
+
+            <hr>
+
+            <button type="submit" id="save-config" class="btn btn-primary mt-3">Save Configuration</button>
+        </form>
+    </div>
+
+    <script>
+        const configSelect = document.getElementById('config-select');
+        const loadButton = document.getElementById('load-config');
+        const newButton = document.getElementById('new-config');
+        const deleteButton = document.getElementById('delete-config');
+        const configForm = document.getElementById('config-form');
+        const configNameInput = document.getElementById('config-name');
+        const rssFeedsContainer = document.getElementById('rss-feeds');
+        const addRssButton = document.getElementById('add-rss');
+        const ignoreRulesContainer = document.getElementById('ignore-rules');
+        const addIgnoreButton = document.getElementById('add-ignore');
+        const saveButton = document.getElementById('save-config');
+
+        const conditionMap = {
+            1: 'Title Includes',
+            2: 'Title/Desc Includes',
+            3: 'Title Begins',
+            4: 'Title Ends',
+            5: 'URL Includes',
+            6: 'Author Includes',
+        };
+
+        function createRssFeedInput(rss = { title: '', url: '' }) {
+            const div = document.createElement('div');
+            div.className = 'input-group mb-2';
+            div.innerHTML = `
+                <input type="text" class="form-control" placeholder="Title" value="${rss.title}">
+                <input type="text" class="form-control" placeholder="URL" value="${rss.url}">
+                <button type="button" class="btn btn-danger remove-rss">Remove</button>
+            `;
+            rssFeedsContainer.appendChild(div);
+            div.querySelector('.remove-rss').addEventListener('click', () => div.remove());
+        }
+
+        function createIgnoreRuleInput(ignore = { condition: 1, text: '' }) {
+            const div = document.createElement('div');
+            div.className = 'input-group mb-2';
+            let options = '';
+            for (const key in conditionMap) {
+                options += `<option value="${key}" ${key == ignore.condition ? 'selected' : ''}>${conditionMap[key]}</option>`;
+            }
+            div.innerHTML = `
+                <select class="form-select">${options}</select>
+                <input type="text" class="form-control" placeholder="Text" value="${ignore.text}">
+                <button type="button" class="btn btn-danger remove-ignore">Remove</button>
+            `;
+            ignoreRulesContainer.appendChild(div);
+            div.querySelector('.remove-ignore').addEventListener('click', () => div.remove());
+        }
+
+        async function loadConfigs() {
+            try {
+                const response = await fetch('/api/configs');
+                if (!response.ok) throw new Error('Failed to load configs');
+                const configs = await response.json();
+                configSelect.innerHTML = '';
+                configs.forEach(config => {
+                    const option = document.createElement('option');
+                    option.value = config;
+                    option.textContent = config;
+                    configSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error(error);
+                alert(error.message);
+            }
+        }
+
+        async function loadConfig(name) {
+            try {
+                const response = await fetch(`/api/configs/${name}`);
+                if (!response.ok) throw new Error('Failed to load config');
+                const config = await response.json();
+                
+                configNameInput.value = config.name;
+                rssFeedsContainer.innerHTML = '';
+                config.rsss.forEach(createRssFeedInput);
+                ignoreRulesContainer.innerHTML = '';
+                config.ignores.forEach(createIgnoreRuleInput);
+
+            } catch (error) {
+                console.error(error);
+                alert(error.message);
+            }
+        }
+
+        function clearForm() {
+            configNameInput.value = '';
+            rssFeedsContainer.innerHTML = '';
+            ignoreRulesContainer.innerHTML = '';
+        }
+        
+        newButton.addEventListener('click', clearForm);
+
+        addRssButton.addEventListener('click', () => createRssFeedInput());
+        addIgnoreButton.addEventListener('click', () => createIgnoreRuleInput());
+
+        loadButton.addEventListener('click', () => {
+            const selectedConfig = configSelect.value;
+            if (selectedConfig) {
+                loadConfig(selectedConfig);
+            }
+        });
+
+        deleteButton.addEventListener('click', async () => {
+            const selectedConfig = configSelect.value;
+            if (selectedConfig && confirm(`Are you sure you want to delete ${selectedConfig}?`)) {
+                try {
+                    const response = await fetch(`/api/configs/${selectedConfig}`, { method: 'DELETE' });
+                    if (!response.ok) throw new Error('Failed to delete config');
+                    loadConfigs();
+                    clearForm();
+                } catch (error) {
+                    console.error(error);
+                    alert(error.message);
+                }
+            }
+        });
+
+        configForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = configNameInput.value;
+            if (!name) {
+                alert('Configuration Name is required');
+                return;
+            }
+
+            const rsss = [...rssFeedsContainer.querySelectorAll('.input-group')].map(div => ({
+                title: div.children[0].value,
+                url: div.children[1].value,
+            }));
+
+            const ignores = [...ignoreRulesContainer.querySelectorAll('.input-group')].map(div => ({
+                condition: parseInt(div.children[0].value),
+                text: div.children[1].value,
+            }));
+
+            const config = { name, rsss, ignores };
+
+            try {
+                const response = await fetch('/api/configs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config),
+                });
+                if (!response.ok) throw new Error('Failed to save config');
+                alert('Configuration saved successfully!');
+                loadConfigs();
+            } catch (error) {
+                console.error(error);
+                alert(error.message);
+            }
+        });
+
+        // Initial load
+        loadConfigs();
+
+    </script>
+</body>
+</html>
