@@ -16,3 +16,27 @@ var configs = []config{
 		},
 	},
 }
+
+// Contains Title, Description, Content
+var filter1 = []string{
+}
+
+// Contains Title
+var filter2 = []string{
+}
+
+// HasSuffix Title
+var filter3 = []string{
+}
+
+// Contains Link.Href
+var filter4 = []string{
+}
+
+// is Author.Name
+var filter5 = []string{
+}
+
+// ReplaceAll Title
+var filter6 = []string{
+}

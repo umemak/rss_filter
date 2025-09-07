@@ -1,0 +1,21 @@
+# Version control
+.git
+.gitignore
+
+# Documentation
+README.md
+CLAUDE.md
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Don't ignore config.go even though it's in .gitignore
+!config.go

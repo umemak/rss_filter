@@ -1,77 +1,21 @@
-package rssfilter
+package main
 
 import (
-	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/gorilla/feeds"
 	"github.com/mmcdole/gofeed"
 )
 
-type RSS struct {
-	XMLName xml.Name `xml:"rss"`
-	Version string   `xml:"version,attr"`
-	Channel struct {
-		Language    string    `xml:"language"`
-		Title       string    `xml:"title"`
-		Link        string    `xml:"link"`
-		Description string    `xml:"description"`
-		Items       []RSSItem `xml:"item"`
-	} `xml:"channel"`
-}
-
-type RSSItem struct {
-	Title       string `xml:"title"`
-	Link        string `xml:"link"`
-	PubDate     string `xml:"pubDate"`
-	Description string `xml:"description"`
-	Creator     string `xml:"dc:creator"`
-}
-
-func Exec(url string) string {
-	fp := gofeed.NewParser()
-	feed, _ := fp.ParseURL(url)
-	return fmt.Sprintf("%#v\n", feed)
-}
-
-func Fetch(url string) ([]byte, error) {
-	client := &http.Client{}
-	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "RSSFilter/0.1.0")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("http error: %s", resp.Status)
-	}
-	return io.ReadAll(resp.Body)
-}
-
-func Parse(buf []byte) (*RSS, error) {
-	rss := RSS{}
-	err := xml.Unmarshal(buf, &rss)
-	if err != nil {
-		return nil, fmt.Errorf("xml.Unmarshal: %w", err)
-	}
-	for i, v := range rss.Channel.Items {
-		rss.Channel.Items[i].Description = strings.ReplaceAll(v.Description, "\n", "")
-	}
-	return &rss, nil
-}
-
 func Handler(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
+	fmt.Printf("name: %s\n", name)
 	if name != "" {
 		res, err := GetByName(name)
 		if err != nil {
@@ -107,75 +51,142 @@ func GetByName(name string) (string, error) {
 		if c.name != name {
 			continue
 		}
-		var mergedRSS RSS
-		for i, r := range c.rsss {
+		var mergedRSS feeds.Feed
+		for _, r := range c.rsss {
 			rss, err := getRSS(r.url, r.title)
 			if err != nil {
 				return "", fmt.Errorf("getRSS: %w", err)
 			}
-			if i == 0 {
-				mergedRSS = *rss
-			} else {
-				mergedRSS.Channel.Items = append(mergedRSS.Channel.Items, rss.Channel.Items...)
+			is := []*feeds.Item{}
+			for _, v := range rss.Items {
+				if isIgnore(v) {
+					continue
+				}
+				is = append(is, v)
 			}
+			mergedRSS.Items = append(mergedRSS.Items, is...)
 		}
-		mergedRSS.Channel.Title = name
-		mergedRSS.Channel.Description = name
-		mergedRSS.Channel.Link = apiHost + "?name=" + name
-		items := mergedRSS.Channel.Items
+		mergedRSS.Title = name
+		mergedRSS.Description = name
+		mergedRSS.Link = &feeds.Link{Href: apiHost + "?name=" + name}
+		items := mergedRSS.Items
 		sort.Slice(items, func(i, j int) bool {
-			ti, _ := time.Parse(time.RFC1123Z, items[i].PubDate)
-			tj, _ := time.Parse(time.RFC1123Z, items[j].PubDate)
-			return ti.Unix() > tj.Unix()
+			return items[i].Created.Local().String() > items[j].Created.Local().String()
 		})
-		mergedRSS.Channel.Items = items
-		res, err := xml.MarshalIndent(mergedRSS, "", "  ")
+		mergedRSS.Items = items
+		res, err := mergedRSS.ToRss()
 		if err != nil {
-			return "", fmt.Errorf("MarshalIndent: %w", err)
+			return "", fmt.Errorf("ToRss: %w", err)
 		}
 		return string(res), nil
 	}
 	return "", errors.New("name not found")
 }
 
-func getRSS(url string, title string) (*RSS, error) {
+func isIgnore(i *feeds.Item) bool {
+	for _, v := range filter1 {
+		if strings.Contains(i.Title, v) {
+			fmt.Printf("Ignored: %q in Title [%s](%s)\n", v, i.Title, i.Link.Href)
+			return true
+		}
+		if strings.Contains(i.Description, v) {
+			fmt.Printf("Ignored: %q in Description [%s](%s)\n", v, i.Title, i.Link.Href)
+			return true
+		}
+		if strings.Contains(i.Content, v) {
+			fmt.Printf("Ignored: %q in Content [%s](%s)\n", v, i.Title, i.Link.Href)
+			return true
+		}
+	}
+	for _, v := range filter2 {
+		if strings.Contains(i.Title, v) {
+			fmt.Printf("Ignored: %q in Title [%s](%s)\n", v, i.Title, i.Link.Href)
+			return true
+		}
+	}
+	for _, v := range filter3 {
+		if strings.HasSuffix(i.Title, v) {
+			fmt.Printf("Ignored: %q in Title [%s](%s)\n", v, i.Title, i.Link.Href)
+			return true
+		}
+	}
+	for _, v := range filter4 {
+		if strings.Contains(i.Link.Href, v) {
+			fmt.Printf("Ignored: %q in Link [%s](%s)\n", v, i.Title, i.Link.Href)
+			return true
+		}
+	}
+	for _, v := range filter5 {
+		if i.Author != nil && i.Author.Name == v {
+			fmt.Printf("Ignored: %q is Author [%s](%s)\n", v, i.Title, i.Link.Href)
+			return true
+		}
+	}
+	for _, v := range filter6 {
+		i.Title = strings.ReplaceAll(i.Title, v, "")
+	}
+	return false
+}
+
+func getRSS(url string, title string) (*feeds.Feed, error) {
 	fp := gofeed.NewParser()
 	feed, err := fp.ParseURL(url)
 	if err != nil {
 		return nil, fmt.Errorf("ParseURL(%s): %w", url, err)
 	}
-	// res, err := Parse(buf)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("Parse: %w", err)
-	// }
-	res := &RSS{Version: "2.0"}
-	res.Channel.Language = feed.Language
-	res.Channel.Title = feed.Title
-	res.Channel.Link = feed.Link
-	res.Channel.Description = feed.Description
+	now := time.Now()
+	res := &feeds.Feed{
+		Title:       feed.Title,
+		Link:        &feeds.Link{Href: feed.Link},
+		Description: feed.Description,
+		Created:     now,
+	}
 	if title == "" {
 		title = feed.Title
 	}
 	for _, v := range feed.Items {
-		item := RSSItem{}
+		if v.PublishedParsed == nil {
+			continue
+		}
+		item := &feeds.Item{}
 		item.Title = v.Title
-		item.Link = v.Link
-		item.PubDate = v.Published
+		item.Link = &feeds.Link{Href: v.Link}
+		item.Created = *v.PublishedParsed
 		item.Description = "[" + title + "] " + v.Description
 		if v.Author != nil {
-			item.Creator = v.Author.Name
+			item.Author = &feeds.Author{
+				Name:  v.Author.Name,
+				Email: v.Author.Email,
+			}
 		}
-		res.Channel.Items = append(res.Channel.Items, item)
+		res.Items = append(res.Items, item)
 	}
 	return res, nil
 }
 
 type config struct {
-	name string
-	rsss []rss
+	name    string
+	rsss    []rss
+	ignores []ignore
 }
 
 type rss struct {
 	title string
 	url   string
+}
+
+type condition int
+
+const (
+	TITLE_INCLUDES         condition = 1 // タイトルに含まれる
+	TITLE_OR_DESC_INCLUDES condition = 2 // タイトルまたは概要に含まれる
+	TITLE_BEGINS           condition = 3 // タイトルの先頭
+	TITLE_ENDS             condition = 4 // タイトルの終わり
+	URL_INCLUDES           condition = 5 // URLに含まれる
+	AUTHOR_INCLUDES        condition = 6 // 著者に含まれる
+)
+
+type ignore struct {
+	condition condition
+	text      string
 }
