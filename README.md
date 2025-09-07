@@ -55,6 +55,15 @@ Cloud Runサービスに、使用するGoogle CloudプロジェクトIDを環境
 gcloud run deploy rss-filter --source . --platform managed --region us-central1 --allow-unauthenticated --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID"
 ```
 
+### 5. 設定UIの認証情報の設定
+
+設定UI (`/config` および `/api/configs` エンドポイント) にアクセスするために、Basic認証のユーザー名とパスワードを設定できます。これらの環境変数を設定しない場合、認証はスキップされます。
+
+```sh
+gcloud run deploy rss-filter --source . --platform managed --region us-central1 --allow-unauthenticated \
+    --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID,CONFIG_USERNAME=your_username,CONFIG_PASSWORD=your_password"
+```
+
 ## デプロイメント
 
 ### Cloud Runへのデプロイ
@@ -78,6 +87,8 @@ gcloud auth application-default login
 
 # 環境変数を設定して実行
 export GCP_PROJECT_ID=$(gcloud config get-value project)
+export CONFIG_USERNAME=your_username
+export CONFIG_PASSWORD=your_password
 go run .
 ```
 

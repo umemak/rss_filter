@@ -4,10 +4,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/gorilla/mux"
 )
+
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username := os.Getenv("CONFIG_USERNAME")
+		password := os.Getenv("CONFIG_PASSWORD")
+
+		// If no username or password is set, skip authentication
+		if username == "" && password == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		u, p, ok := r.BasicAuth()
+		if !ok || u != username || p != password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 
 func rssHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
