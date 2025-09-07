@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -47,6 +48,13 @@ func GetByURL(url string) (string, error) {
 }
 
 func GetByName(name string) (string, error) {
+	ctx := context.Background()
+	dbClient, err := NewDBClient(ctx)
+	if err != nil {
+		return "", fmt.Errorf("NewDBClient: %w", err)
+	}
+	defer dbClient.Close()
+
 	for _, c := range configs {
 		if c.name != name {
 			continue
@@ -61,6 +69,17 @@ func GetByName(name string) (string, error) {
 			for _, v := range rss.Items {
 				if isIgnore(v) {
 					continue
+				}
+			exists, err := dbClient.IsURLExists(ctx, v.Link.Href)
+				if err != nil {
+					return "", fmt.Errorf("IsURLExists: %w", err)
+				}
+				if exists {
+					fmt.Printf("URL already exists: %s\n", v.Link.Href)
+					continue
+				}
+				if err := dbClient.AddURL(ctx, v.Link.Href); err != nil {
+					return "", fmt.Errorf("AddURL: %w", err)
 				}
 				is = append(is, v)
 			}
